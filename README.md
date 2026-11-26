@@ -37,6 +37,31 @@ npm run test:e2e
 Playwright inicia una instancia local aislada en el puerto `8001` y usa `data/taskboard-e2e.db`, sin modificar la base normal de desarrollo.
 GitHub Actions ejecuta ambas suites en cada `push` y `pull request` hacia `main`; el reporte HTML de Playwright queda disponible como artefacto de la ejecucion.
 
+## Observabilidad con OpenTelemetry
+
+La aplicacion puede exportar trazas, metricas HTTP y logs mediante OTLP/HTTP. La instrumentacion se activa solo cuando `OTEL_EXPORTER_OTLP_ENDPOINT` tiene un valor; sin ese valor la aplicacion sigue funcionando localmente sin intentar conectarse a un colector.
+
+Configura estas variables en el entorno del proceso, nunca en el repositorio:
+
+- `OTEL_SERVICE_NAME=taskboard`
+- `OTEL_EXPORTER_OTLP_ENDPOINT`: endpoint base OTLP/HTTP proporcionado por OpenObserve.
+- `OTEL_EXPORTER_OTLP_HEADERS`: encabezados de autenticacion requeridos por el servicio.
+
+No agregues tokens, claves ni encabezados reales a `.env.example`, archivos versionados, capturas publicas ni logs. El formato exacto del endpoint y la autenticacion se completa al crear el espacio de OpenObserve; las metricas de host se configuraran aparte con OpenTelemetry Collector.
+
+## Despliegue inicial en Ubuntu EC2
+
+El script `scripts/deploy-ec2.sh` instala dependencias, crea un usuario de sistema y configura un servicio `systemd`. Por seguridad, Uvicorn escucha solo en `127.0.0.1:8000`; este paso no abre puertos ni publica la app. Desde Session Manager, instala Git y clona el repo en la ruta esperada:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git
+sudo git clone https://github.com/Luisilloelpillo55/taskboard-ci-cd.git /opt/taskboard
+sudo bash /opt/taskboard/scripts/deploy-ec2.sh
+```
+
+La comprobacion final del script consulta `/api/health` desde la propia instancia. Verifica el servicio con `sudo systemctl status taskboard --no-pager` y sus logs con `sudo journalctl -u taskboard -n 50 --no-pager`. No abras el acceso web ni ingreses contrasenas reales hasta configurar HTTPS; el servicio aun no tiene un proxy publico.
+
 ## Cuentas y sesiones
 
 - El registro requiere un correo valido y una contrasena de al menos 12 caracteres.

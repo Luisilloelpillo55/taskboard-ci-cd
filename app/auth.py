@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -19,6 +20,7 @@ SESSION_MAX_AGE = int(SESSION_DURATION.total_seconds())
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
 password_hash = PasswordHash.recommended()
 _dummy_password_hash = password_hash.hash(secrets.token_urlsafe(32))
+logger = logging.getLogger(__name__)
 
 
 class RegisterRequest(BaseModel):
@@ -108,6 +110,7 @@ def register(payload: RegisterRequest, response: Response) -> dict:
         token = _new_session(connection, user["id"])
 
     _set_session_cookie(response, token)
+    logger.info("User registered")
     return dict(user)
 
 
@@ -125,11 +128,13 @@ def login(payload: LoginRequest, response: Response) -> dict:
         payload.password.get_secret_value(), stored_hash
     )
     if user is None or not password_matches:
+        logger.warning("Login rejected")
         raise _invalid_credentials()
 
     with connect() as connection:
         token = _new_session(connection, user["id"])
     _set_session_cookie(response, token)
+    logger.info("User logged in")
     return {
         "id": user["id"],
         "email": user["email"],
@@ -145,6 +150,7 @@ def logout(request: Request, response: Response) -> Response:
             connection.execute(
                 "DELETE FROM sessions WHERE token_hash = ?", (_token_digest(token),)
             )
+        logger.info("User logged out")
     response.delete_cookie(
         key=SESSION_COOKIE,
         path="/",

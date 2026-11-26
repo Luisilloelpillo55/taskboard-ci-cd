@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from collections.abc import Awaitable, Callable
 from enum import Enum
@@ -11,6 +12,10 @@ from starlette.responses import FileResponse, Response as StarletteResponse
 
 from app.auth import CurrentUser, router as auth_router
 from app.database import connect, initialize_database
+from app.telemetry import configure_telemetry, shutdown_telemetry
+
+
+logger = logging.getLogger(__name__)
 
 
 class TaskStatus(str, Enum):
@@ -51,10 +56,14 @@ class Task(TaskCreate):
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     initialize_database()
-    yield
+    try:
+        yield
+    finally:
+        shutdown_telemetry()
 
 
 app = FastAPI(title="Taskboard", version="1.0.0", lifespan=lifespan)
+configure_telemetry(app)
 app.include_router(auth_router)
 static_directory = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static_directory), name="static")
@@ -105,6 +114,10 @@ def create_task(task: TaskCreate, user: CurrentUser) -> dict:
             "FROM tasks WHERE id = ?",
             (cursor.lastrowid,),
         ).fetchone()
+    logger.info(
+        "Task created",
+        extra={"event_name": "task.created", "task_id": row["id"]},
+    )
     return dict(row)
 
 
@@ -133,6 +146,10 @@ def update_task(task_id: int, update: TaskUpdate, user: CurrentUser) -> dict:
             "FROM tasks WHERE id = ?",
             (task_id,),
         ).fetchone()
+    logger.info(
+        "Task updated",
+        extra={"event_name": "task.updated", "task_id": task_id},
+    )
     return dict(row)
 
 
@@ -145,4 +162,8 @@ def delete_task(task_id: int, user: CurrentUser) -> Response:
         )
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Task not found.")
+    logger.info(
+        "Task deleted",
+        extra={"event_name": "task.deleted", "task_id": task_id},
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

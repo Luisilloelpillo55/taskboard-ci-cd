@@ -1,3 +1,4 @@
+import logging
 import sqlite3
 
 from starlette.testclient import TestClient
@@ -96,7 +97,8 @@ def test_legacy_database_migration_preserves_tasks(tmp_path, monkeypatch):
         ).fetchone() == (7, "Tarea anterior", "done", None)
 
 
-def test_registration_login_logout_and_password_validation(client):
+def test_registration_login_logout_and_password_validation(client, caplog):
+    caplog.set_level(logging.INFO)
     assert client.get("/api/auth/me").status_code == 401
     short_password = client.post(
         "/api/auth/register",
@@ -127,6 +129,10 @@ def test_registration_login_logout_and_password_validation(client):
     )
     assert login.status_code == 200
     assert client.get("/api/auth/me").json()["email"] == "new.user@example.com"
+    assert "Incorrecta2026!" not in caplog.text
+    assert "ClaveSegura2026!" not in caplog.text
+    assert "new.user@example.com" not in caplog.text
+    assert "Login rejected" in caplog.text
 
 
 def test_users_cannot_read_or_change_each_others_tasks(tmp_path, monkeypatch):
