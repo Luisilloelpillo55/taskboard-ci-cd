@@ -36,6 +36,26 @@ h2 { margin-bottom: 0; font-size: 1.25rem; }
 .panel h2 { margin-bottom: 20px; }
 .auth-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .account-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; color: #526075; }
+.account-bar > span { overflow-wrap: anywhere; }
+.account-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.account-panel { margin-bottom: 18px; }
+.account-panel h2 { margin-bottom: 20px; }
+.danger-zone { margin-top: 24px; padding-top: 20px; border-top: 1px solid #e4e9f2; }
+.danger-zone h3 { margin-bottom: 8px; font-size: 1rem; }
+.danger-zone p { color: #667085; font-size: 0.9rem; }
+.danger-zone .button-danger { margin-top: 8px; }
+dialog {
+  width: min(100% - 32px, 460px);
+  border: 1px solid #e4e9f2;
+  border-radius: 16px;
+  padding: 24px;
+  color: inherit;
+  box-shadow: 0 16px 48px rgb(21 34 66 / 20%);
+}
+dialog::backdrop { background: rgb(23 32 51 / 45%); }
+dialog h2 { margin-bottom: 12px; }
+dialog p { color: #667085; }
+.dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 form { display: grid; gap: 10px; }
 label { margin-top: 4px; font-size: 0.9rem; font-weight: 650; }
 label span:not(.optional) { color: #c0394a; }

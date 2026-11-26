@@ -49,8 +49,43 @@
       <div id="board" hidden>
         <div class="account-bar">
           <span>Sesión iniciada como <strong id="account-email"></strong></span>
-          <button id="logout-button" class="button button-secondary" type="button">Cerrar sesión</button>
+          <div class="account-actions">
+            <button id="manage-account-button" class="button button-secondary" type="button"
+                    aria-expanded="false" aria-controls="account-panel">Mi cuenta</button>
+            <button id="logout-button" class="button button-secondary" type="button">Cerrar sesión</button>
+          </div>
         </div>
+        <section id="account-panel" class="panel account-panel" aria-labelledby="account-heading" hidden>
+          <h2 id="account-heading">Administrar tu cuenta</h2>
+          <form id="profile-form">
+            <label for="profile-email">Correo electrónico</label>
+            <input id="profile-email" name="email" type="email" autocomplete="email"
+                   maxlength="254" required>
+            <label for="current-password">Contraseña actual (para confirmar cambios)</label>
+            <input id="current-password" name="current_password" type="password"
+                   autocomplete="current-password" maxlength="128" required>
+            <label for="new-password">
+              Nueva contraseña <span class="optional">(opcional, mínimo 12 caracteres)</span>
+            </label>
+            <input id="new-password" name="new_password" type="password"
+                   autocomplete="new-password" minlength="12" maxlength="128">
+            <label for="confirm-new-password">Confirmar nueva contraseña</label>
+            <input id="confirm-new-password" name="confirm_new_password" type="password"
+                   autocomplete="new-password" minlength="12" maxlength="128">
+            <button class="button button-primary" type="submit">Guardar cambios</button>
+          </form>
+          <p id="account-message" class="message" role="status" aria-live="polite"></p>
+          <div class="danger-zone">
+            <h3>Eliminar cuenta</h3>
+            <p>Se eliminarán también tus tareas y sesiones. Esta acción no se puede deshacer.</p>
+            <form id="delete-account-form">
+              <label for="delete-current-password">Confirma tu contraseña actual</label>
+              <input id="delete-current-password" name="current_password" type="password"
+                     autocomplete="current-password" maxlength="128" required>
+              <button class="button button-danger" type="submit">Eliminar mi cuenta</button>
+            </form>
+          </div>
+        </section>
         <section class="panel" aria-labelledby="create-heading">
           <h2 id="create-heading">Agregar una tarea</h2>
           <form id="task-form">
@@ -79,6 +114,22 @@
           <ul id="task-list" class="task-list" aria-label="Lista de tareas"></ul>
         </section>
       </div>
+      <dialog id="delete-confirmation-dialog"
+              aria-labelledby="delete-confirmation-heading"
+              aria-describedby="delete-confirmation-description">
+        <h2 id="delete-confirmation-heading">Confirmar eliminación de cuenta</h2>
+        <p id="delete-confirmation-description">
+          Se eliminarán permanentemente tu cuenta, tus tareas y tus sesiones.
+        </p>
+        <div class="dialog-actions">
+          <button id="cancel-delete-account" class="button button-secondary" type="button">
+            Cancelar
+          </button>
+          <button id="confirm-delete-account" class="button button-danger" type="button">
+            Sí, eliminar mi cuenta
+          </button>
+        </div>
+      </dialog>
       <footer>Taskboard · Proyecto de integración continua y observabilidad</footer>
     </main>
   </body>

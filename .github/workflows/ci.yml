@@ -51,7 +51,7 @@ jobs:
           --cov-report=term-missing
           --cov-report=html:backend-coverage
 
-      - name: Run browser tests
+      - name: Run Playwright API and browser tests
         run: npm run test:e2e
 
       - name: Upload backend coverage report

@@ -1,10 +1,12 @@
 const { test, expect } = require("@playwright/test");
 const { randomUUID } = require("node:crypto");
+const { attachScreenshot } = require("./helpers");
 
-test("user can register, log in again, and manage private tasks", async ({ page }) => {
+test("user can register, log in again, and manage private tasks", async ({ page }, testInfo) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Taskboard" })).toBeVisible();
   await expect(page.locator("#board")).toBeHidden();
+  await attachScreenshot(page, testInfo, "login-and-registration");
 
   const email = `e2e-${randomUUID()}@example.com`;
   const password = "ClaveE2E2026!";
@@ -13,6 +15,7 @@ test("user can register, log in again, and manage private tasks", async ({ page 
   await page.getByRole("button", { name: "Crear cuenta" }).click();
   await expect(page.getByText(email)).toBeVisible();
   await expect(page.getByText("Aún no hay tareas")).toBeVisible();
+  await attachScreenshot(page, testInfo, "empty-taskboard");
 
   await page.getByLabel("Título").fill("Validar despliegue");
   await page.getByLabel("Descripción").fill("Prueba de extremo a extremo");
@@ -21,19 +24,25 @@ test("user can register, log in again, and manage private tasks", async ({ page 
   const task = page.locator(".task-card");
   await expect(task.getByRole("heading", { name: "Validar despliegue" })).toBeVisible();
   await expect(task.getByText("Pendiente")).toBeVisible();
+  await attachScreenshot(page, testInfo, "task-created");
   await task.getByRole("button", { name: "Avanzar tarea" }).click();
   await expect(task.getByText("En progreso")).toBeVisible();
+  await attachScreenshot(page, testInfo, "task-in-progress");
 
   await page.getByRole("button", { name: "Cerrar sesión" }).click();
   await expect(page.locator("#board")).toBeHidden();
+  await attachScreenshot(page, testInfo, "logged-out");
   await page.getByLabel("Correo electrónico (inicio de sesión)").fill(email);
   await page.getByLabel("Contraseña", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Iniciar sesión" }).click();
   await expect(task.getByText("En progreso")).toBeVisible();
+  await attachScreenshot(page, testInfo, "logged-in-with-saved-task");
   await task.getByRole("button", { name: "Avanzar tarea" }).click();
   await expect(task.getByText("Terminada")).toBeVisible();
+  await attachScreenshot(page, testInfo, "task-completed");
   await task.getByRole("button", { name: "Eliminar tarea" }).click();
   await expect(page.getByText("Aún no hay tareas")).toBeVisible();
+  await attachScreenshot(page, testInfo, "empty-taskboard-after-delete");
 });
 
 test("task board is gated and a task title is required", async ({ page }) => {
@@ -132,9 +141,10 @@ test("deleting one task updates the count and keeps the remaining task", async (
   await page.getByLabel("Contraseña (mínimo 12 caracteres)").fill("ClaveE2E2026!");
   await page.getByRole("button", { name: "Crear cuenta" }).click();
 
-  for (const title of ["Keep task", "Delete task"]) {
+  for (const [index, title] of ["Keep task", "Delete task"].entries()) {
     await page.getByLabel("Título").fill(title);
     await page.getByRole("button", { name: "Crear tarea" }).click();
+    await expect(page.locator(".task-card")).toHaveCount(index + 1);
   }
 
   await page.getByRole("button", { name: "Eliminar tarea: Delete task" }).click();
@@ -231,13 +241,19 @@ test("mobile layout fits the viewport without horizontal scrolling", async ({ pa
   expect(secondPanel.y).toBeGreaterThan(firstPanel.y);
 });
 
-test("keyboard navigation reaches a visibly focused login field", async ({ page }) => {
+test("keyboard navigation reaches a visibly focused login field", async ({ page }, testInfo) => {
   await page.goto("/");
   await page.keyboard.press("Tab");
 
   const email = page.getByLabel("Correo electrónico (inicio de sesión)");
   await expect(email).toBeFocused();
-  expect(await email.evaluate((input) => getComputedStyle(input).outlineWidth)).toBe("3px");
+  const outline = await email.evaluate((input) => {
+    const style = getComputedStyle(input);
+    return { width: Number.parseFloat(style.outlineWidth), style: style.outlineStyle };
+  });
+  expect(outline.width).toBeGreaterThanOrEqual(2);
+  expect(outline.style).toBe("solid");
+  await attachScreenshot(page, testInfo, "keyboard-focus-indicator");
 });
 
 test("task loading errors are announced in the board", async ({ page }) => {

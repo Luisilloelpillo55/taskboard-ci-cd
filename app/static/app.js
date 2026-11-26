@@ -5,6 +5,15 @@ const loginForm = document.querySelector("#login-form");
 const registerForm = document.querySelector("#register-form");
 const logoutButton = document.querySelector("#logout-button");
 const accountEmail = document.querySelector("#account-email");
+const manageAccountButton = document.querySelector("#manage-account-button");
+const accountPanel = document.querySelector("#account-panel");
+const profileForm = document.querySelector("#profile-form");
+const profileEmail = document.querySelector("#profile-email");
+const accountMessage = document.querySelector("#account-message");
+const deleteAccountForm = document.querySelector("#delete-account-form");
+const deleteConfirmationDialog = document.querySelector("#delete-confirmation-dialog");
+const cancelDeleteAccountButton = document.querySelector("#cancel-delete-account");
+const confirmDeleteAccountButton = document.querySelector("#confirm-delete-account");
 const taskForm = document.querySelector("#task-form");
 const taskList = document.querySelector("#task-list");
 const taskCount = document.querySelector("#task-count");
@@ -12,6 +21,7 @@ const formMessage = document.querySelector("#form-message");
 const loadingMessage = document.querySelector("#loading-message");
 const emptyMessage = document.querySelector("#empty-message");
 const errorMessage = document.querySelector("#error-message");
+let pendingDeletePassword = "";
 
 const statusLabels = {
   todo: "Pendiente",
@@ -36,17 +46,29 @@ async function request(path, options = {}) {
   return response.status === 204 ? null : response.json();
 }
 
-function showAuth(message = "") {
+function showAuth(message = "", isError = true) {
+  if (deleteConfirmationDialog.open) deleteConfirmationDialog.close();
   board.hidden = true;
   authView.hidden = false;
+  authMessage.classList.toggle("message-error", isError);
   authMessage.textContent = message;
   authMessage.hidden = !message;
+  profileForm.reset();
+  deleteAccountForm.reset();
+  accountPanel.hidden = true;
+  manageAccountButton.setAttribute("aria-expanded", "false");
+}
+
+function showAccountMessage(message, isError = false) {
+  accountMessage.classList.toggle("message-error", isError);
+  accountMessage.textContent = message;
 }
 
 async function showBoard(user) {
   authView.hidden = true;
   board.hidden = false;
   accountEmail.textContent = user.email;
+  profileEmail.value = user.email;
   await loadTasks();
 }
 
@@ -119,6 +141,7 @@ async function loadTasks() {
 
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  authMessage.classList.add("message-error");
   authMessage.hidden = true;
   const formData = new FormData(loginForm);
   try {
@@ -137,8 +160,95 @@ loginForm.addEventListener("submit", async (event) => {
   }
 });
 
+manageAccountButton.addEventListener("click", () => {
+  accountPanel.hidden = !accountPanel.hidden;
+  manageAccountButton.setAttribute("aria-expanded", String(!accountPanel.hidden));
+  showAccountMessage("");
+  if (accountPanel.hidden) {
+    profileForm.reset();
+    profileEmail.value = accountEmail.textContent;
+    deleteAccountForm.reset();
+  }
+});
+
+profileForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  showAccountMessage("");
+  const formData = new FormData(profileForm);
+  const email = String(formData.get("email")).trim();
+  const currentPassword = String(formData.get("current_password"));
+  const newPassword = String(formData.get("new_password"));
+  const confirmNewPassword = String(formData.get("confirm_new_password"));
+
+  if (newPassword !== confirmNewPassword) {
+    showAccountMessage("Las nuevas contraseñas no coinciden.", true);
+    return;
+  }
+
+  const payload = { current_password: currentPassword };
+  if (email !== accountEmail.textContent) payload.email = email;
+  if (newPassword) payload.new_password = newPassword;
+  if (Object.keys(payload).length === 1) {
+    showAccountMessage("No hay cambios para guardar.", true);
+    return;
+  }
+
+  try {
+    const user = await request("/api/auth/me", {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    accountEmail.textContent = user.email;
+    profileEmail.value = user.email;
+    profileForm.reset();
+    profileEmail.value = user.email;
+    showAccountMessage("Los cambios de tu cuenta se guardaron.");
+  } catch (error) {
+    showAccountMessage(
+      `No se pudieron guardar los cambios: ${error.message}`,
+      true,
+    );
+  }
+});
+
+deleteAccountForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  pendingDeletePassword = String(
+    new FormData(deleteAccountForm).get("current_password"),
+  );
+  showAccountMessage("");
+  deleteConfirmationDialog.showModal();
+});
+
+cancelDeleteAccountButton.addEventListener("click", () => {
+  deleteConfirmationDialog.close();
+});
+
+deleteConfirmationDialog.addEventListener("close", () => {
+  pendingDeletePassword = "";
+  deleteAccountForm.reset();
+});
+
+confirmDeleteAccountButton.addEventListener("click", async () => {
+  confirmDeleteAccountButton.disabled = true;
+  try {
+    await request("/api/auth/me", {
+      method: "DELETE",
+      body: JSON.stringify({ current_password: pendingDeletePassword }),
+    });
+    deleteConfirmationDialog.close();
+    showAuth("Tu cuenta se eliminó correctamente.", false);
+  } catch (error) {
+    showAccountMessage(`No se pudo eliminar la cuenta: ${error.message}`, true);
+  } finally {
+    if (deleteConfirmationDialog.open) deleteConfirmationDialog.close();
+    confirmDeleteAccountButton.disabled = false;
+  }
+});
+
 registerForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  authMessage.classList.add("message-error");
   authMessage.hidden = true;
   const formData = new FormData(registerForm);
   try {
@@ -161,7 +271,7 @@ logoutButton.addEventListener("click", async () => {
   logoutButton.disabled = true;
   try {
     await request("/api/auth/logout", { method: "POST" });
-    showAuth("Sesión cerrada correctamente.");
+    showAuth("Sesión cerrada correctamente.", false);
   } catch (error) {
     errorMessage.textContent = `No se pudo cerrar la sesión: ${error.message}`;
     errorMessage.hidden = false;

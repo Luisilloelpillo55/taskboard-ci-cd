@@ -37,6 +37,22 @@ class LoginRequest(BaseModel):
     password: SecretStr = Field(max_length=128)
 
 
+class UpdateAccountRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: SecretStr = Field(max_length=128)
+    email: EmailStr | None = None
+    new_password: Annotated[
+        SecretStr, Field(min_length=12, max_length=128)
+    ] | None = None
+
+
+class DeleteAccountRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: SecretStr = Field(max_length=128)
+
+
 class UserPublic(BaseModel):
     id: int
     email: EmailStr
@@ -85,6 +101,23 @@ def _invalid_credentials() -> HTTPException:
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Correo o contraseña incorrectos.",
     )
+
+
+def _require_current_password(user_id: int, current_password: SecretStr) -> None:
+    with connect() as connection:
+        user = connection.execute(
+            "SELECT password_hash FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+
+    if user is None:
+        raise _invalid_credentials()
+    if not password_hash.verify(
+        current_password.get_secret_value(), user["password_hash"]
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="La contraseña actual es incorrecta.",
+        )
 
 
 @router.post("/register", response_model=UserPublic, status_code=status.HTTP_201_CREATED)
@@ -195,3 +228,92 @@ CurrentUser = Annotated[UserPublic, Depends(get_current_user)]
 @router.get("/me", response_model=UserPublic)
 def current_user(user: CurrentUser) -> dict:
     return user
+
+
+@router.patch("/me", response_model=UserPublic)
+def update_current_user(
+    payload: UpdateAccountRequest,
+    request: Request,
+    user: CurrentUser,
+) -> dict:
+    fields = payload.model_fields_set
+    if not fields.intersection({"email", "new_password"}):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Indica un correo o una nueva contraseña para actualizar.",
+        )
+    if "email" in fields and payload.email is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="El correo no puede ser nulo.",
+        )
+    if "new_password" in fields and payload.new_password is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="La nueva contraseña no puede ser nula.",
+        )
+
+    _require_current_password(user.id, payload.current_password)
+    changes: list[str] = []
+    values: list[str] = []
+    if payload.email is not None:
+        changes.append("email = ?")
+        values.append(_normalized_email(payload.email))
+    if payload.new_password is not None:
+        changes.append("password_hash = ?")
+        values.append(password_hash.hash(payload.new_password.get_secret_value()))
+
+    try:
+        with connect() as connection:
+            cursor = connection.execute(
+                f"UPDATE users SET {', '.join(changes)} WHERE id = ?",
+                (*values, user.id),
+            )
+            if cursor.rowcount == 0:
+                raise _invalid_credentials()
+            if payload.new_password is not None:
+                token = request.cookies.get(SESSION_COOKIE)
+                if token is None:
+                    raise _invalid_credentials()
+                connection.execute(
+                    "DELETE FROM sessions WHERE user_id = ? AND token_hash != ?",
+                    (user.id, _token_digest(token)),
+                )
+            updated_user = connection.execute(
+                "SELECT id, email, created_at FROM users WHERE id = ?",
+                (user.id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Ya existe una cuenta con ese correo.",
+        ) from exc
+
+    logger.info("User account updated")
+    return dict(updated_user)
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+def delete_current_user(
+    payload: DeleteAccountRequest,
+    response: Response,
+    user: CurrentUser,
+) -> Response:
+    _require_current_password(user.id, payload.current_password)
+
+    with connect() as connection:
+        connection.execute("DELETE FROM tasks WHERE user_id = ?", (user.id,))
+        cursor = connection.execute("DELETE FROM users WHERE id = ?", (user.id,))
+        if cursor.rowcount == 0:
+            raise _invalid_credentials()
+
+    response.delete_cookie(
+        key=SESSION_COOKIE,
+        path="/",
+        secure=_cookie_is_secure(),
+        httponly=True,
+        samesite="lax",
+    )
+    response.status_code = status.HTTP_204_NO_CONTENT
+    logger.info("User account deleted")
+    return response

@@ -36,7 +36,7 @@ npm run report
 ```
 
 Playwright inicia una instancia local aislada en el puerto `8001` y usa `data/taskboard-e2e.db`, sin modificar la base normal de desarrollo.
-Pytest genera `api-test-report.html` y `backend-coverage/index.html`; Playwright genera el reporte HTML en `playwright-report/`, que `npm run report` abre en el navegador. GitHub Actions ejecuta ambas suites en cada `push` y `pull request` hacia `main`, y publica los tres reportes (`api-test-report`, `backend-coverage` y `playwright-report`) como artefactos durante 7 dias. Cuando se configuran el rol OIDC y las variables de despliegue indicadas abajo, un `push` exitoso a `main` tambien despliega por SSM.
+Para ver las pruebas de interfaz en una ventana de Chromium, ejecuta `npm run test:e2e:headed`; `npm run test:e2e` permanece en modo headless para CI. La suite Playwright contiene pruebas de API (sin mostrar datos de backend en pantalla) y de navegador; ambas aparecen en el mismo reporte HTML. Las capturas de las vistas principales se adjuntan a sus pruebas y pueden abrirse desde el reporte con `npm run report`. Pytest se conserva para pruebas internas del backend y medicion de cobertura; genera `api-test-report.html` y `backend-coverage/index.html`. GitHub Actions ejecuta ambas suites en cada `push` y `pull request` hacia `main`, y publica los tres reportes (`api-test-report`, `backend-coverage` y `playwright-report`) como artefactos durante 7 dias. Cuando se configuran el rol OIDC y las variables de despliegue indicadas abajo, un `push` exitoso a `main` tambien despliega por SSM.
 
 ### Despliegue continuo privado con GitHub Actions
 
@@ -140,4 +140,4 @@ La comprobacion final del script consulta `/api/health` desde la propia instanci
 - Para desarrollo local, `COOKIE_SECURE` usa `false`. En un despliegue HTTPS, configura `COOKIE_SECURE=true`; no lo actives si la aplicacion solo usa HTTP.
 - Cada usuario solo puede consultar y modificar sus propias tareas. Tareas anteriores sin propietario se conservan en SQLite, pero no se muestran a cuentas nuevas.
 
-La API de autenticacion ofrece `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout` y `GET /api/auth/me`. Las operaciones de tareas requieren una sesion activa.
+La API de autenticacion ofrece registro, inicio/cierre de sesion y lectura del usuario actual (`POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`). Una persona autenticada puede actualizar su correo o contraseña con `PATCH /api/auth/me` y eliminar su cuenta con `DELETE /api/auth/me`; ambas operaciones requieren la contraseña actual. Al cambiar la contraseña se revocan las otras sesiones. Al eliminar la cuenta se eliminan tambien sus tareas y sesiones. No hay un panel administrativo ni acceso para listar o modificar cuentas ajenas. Las operaciones de tareas tambien requieren una sesion activa.
