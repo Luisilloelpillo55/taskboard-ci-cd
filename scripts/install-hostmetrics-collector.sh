@@ -22,8 +22,29 @@ if ! grep -Eq '^OTEL_EXPORTER_OTLP_ENDPOINT=.+' "${env_file}"; then
     echo "OTEL_EXPORTER_OTLP_ENDPOINT is missing from ${env_file}." >&2
     exit 1
 fi
-if ! grep -Eq '^OPENOBSERVE_AUTHORIZATION=.+' "${env_file}"; then
-    echo "Add OPENOBSERVE_AUTHORIZATION to ${env_file}; do not put credentials in the repository." >&2
+if ! grep -Eq '^OTEL_EXPORTER_OTLP_HEADERS=.+' "${env_file}"; then
+    echo "OTEL_EXPORTER_OTLP_HEADERS is missing from ${env_file}." >&2
+    exit 1
+fi
+
+headers_line="$(grep -m 1 '^OTEL_EXPORTER_OTLP_HEADERS=' "${env_file}")"
+headers_value="${headers_line#*=}"
+if [[ "${headers_value}" == \"*\" ]]; then
+    headers_value="${headers_value:1:${#headers_value}-2}"
+elif [[ "${headers_value}" == \'*\' ]]; then
+    headers_value="${headers_value:1:${#headers_value}-2}"
+fi
+
+authorization=""
+IFS=',' read -r -a configured_headers <<< "${headers_value}"
+for header in "${configured_headers[@]}"; do
+    if [[ "${header}" == Authorization=* ]]; then
+        authorization="${header#Authorization=}"
+        break
+    fi
+done
+if [[ ! "${authorization}" =~ ^Basic[[:space:]][A-Za-z0-9+/=]+$ ]]; then
+    echo "OTEL_EXPORTER_OTLP_HEADERS must contain a Basic Authorization value." >&2
     exit 1
 fi
 
@@ -78,6 +99,10 @@ install -o root -g otelcol -m 0640 \
 install -o root -g root -m 0644 \
     "${repo_dir}/deploy/taskboard-hostmetrics.service" \
     /etc/systemd/system/taskboard-hostmetrics.service
+umask 0077
+printf 'OPENOBSERVE_AUTHORIZATION="%s"\n' "${authorization}" \
+    > /etc/taskboard/otelcol.env
+chmod 0600 /etc/taskboard/otelcol.env
 
 OTEL_EXPORTER_OTLP_ENDPOINT="https://validation.invalid/api/taskboard" \
 OPENOBSERVE_AUTHORIZATION="Basic validation-only" \

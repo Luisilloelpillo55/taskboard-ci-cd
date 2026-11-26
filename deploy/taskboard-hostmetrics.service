@@ -8,6 +8,7 @@ Type=simple
 User=otelcol
 Group=otelcol
 EnvironmentFile=/etc/taskboard/taskboard.env
+EnvironmentFile=/etc/taskboard/otelcol.env
 ExecStart=/usr/local/bin/otelcol-contrib --config=/etc/otelcol-contrib/taskboard-hostmetrics.yaml
 Restart=on-failure
 RestartSec=5

@@ -53,13 +53,7 @@ No agregues tokens, claves ni encabezados reales a `.env.example`, archivos vers
 
 Las metricas HTTP de Taskboard las envia la aplicacion; para CPU, memoria, disco, filesystem, carga, red y paging se usa OpenTelemetry Collector Contrib. El collector consulta el host cada 60 segundos y exporta por HTTPS al mismo endpoint OTLP y al stream `default`. No abre puertos de entrada.
 
-En `/etc/taskboard/taskboard.env`, agrega el valor de autorizacion de OpenObserve como variable separada para que el collector lo use. El valor debe incluir el esquema `Basic`, pero no el nombre del encabezado:
-
-```text
-OPENOBSERVE_AUTHORIZATION="Basic <valor-de-autorizacion>"
-```
-
-No compartas ese valor ni lo guardes en el repositorio. Protege el archivo y despliega el collector:
+El instalador obtiene el valor `Authorization` de `OTEL_EXPORTER_OTLP_HEADERS` y lo guarda en `/etc/taskboard/otelcol.env`, un archivo local protegido que no se versiona. No compartas ni guardes credenciales en el repositorio. Despliega el collector:
 
 ```bash
 sudo chmod 600 /etc/taskboard/taskboard.env
