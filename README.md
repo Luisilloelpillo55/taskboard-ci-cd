@@ -47,7 +47,27 @@ Configura estas variables en el entorno del proceso, nunca en el repositorio:
 - `OTEL_EXPORTER_OTLP_ENDPOINT`: endpoint base OTLP/HTTP proporcionado por OpenObserve.
 - `OTEL_EXPORTER_OTLP_HEADERS`: encabezados de autenticacion requeridos por el servicio.
 
-No agregues tokens, claves ni encabezados reales a `.env.example`, archivos versionados, capturas publicas ni logs. El formato exacto del endpoint y la autenticacion se completa al crear el espacio de OpenObserve; las metricas de host se configuraran aparte con OpenTelemetry Collector.
+No agregues tokens, claves ni encabezados reales a `.env.example`, archivos versionados, capturas publicas ni logs. El formato exacto del endpoint y la autenticacion se completa al crear el espacio de OpenObserve.
+
+### Metricas del host EC2
+
+Las metricas HTTP de Taskboard las envia la aplicacion; para CPU, memoria, disco, filesystem, carga, red y paging se usa OpenTelemetry Collector Contrib. El collector consulta el host cada 60 segundos y exporta por HTTPS al mismo endpoint OTLP y al stream `default`. No abre puertos de entrada.
+
+En `/etc/taskboard/taskboard.env`, agrega el valor de autorizacion de OpenObserve como variable separada para que el collector lo use. El valor debe incluir el esquema `Basic`, pero no el nombre del encabezado:
+
+```text
+OPENOBSERVE_AUTHORIZATION="Basic <valor-de-autorizacion>"
+```
+
+No compartas ese valor ni lo guardes en el repositorio. Protege el archivo y despliega el collector:
+
+```bash
+sudo chmod 600 /etc/taskboard/taskboard.env
+sudo bash /opt/taskboard/scripts/install-hostmetrics-collector.sh
+sudo systemctl is-active taskboard-hostmetrics
+```
+
+El instalador descarga una version fijada de OpenTelemetry Collector Contrib, verifica su SHA-256, valida la configuracion y crea un servicio `systemd` dedicado. En OpenObserve, busca las metricas del recurso `service_name=taskboard-ec2-host`; la primera muestra puede tardar hasta un minuto.
 
 ## Despliegue inicial en Ubuntu EC2
 

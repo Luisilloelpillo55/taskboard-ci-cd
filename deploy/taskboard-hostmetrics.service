@@ -1,0 +1,21 @@
+[Unit]
+Description=OpenTelemetry Collector for Taskboard EC2 host metrics
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=otelcol
+Group=otelcol
+EnvironmentFile=/etc/taskboard/taskboard.env
+ExecStart=/usr/local/bin/otelcol-contrib --config=/etc/otelcol-contrib/taskboard-hostmetrics.yaml
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

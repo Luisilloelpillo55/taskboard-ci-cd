@@ -1,0 +1,50 @@
+receivers:
+  hostmetrics:
+    collection_interval: 60s
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      disk:
+      filesystem:
+        exclude_mount_points:
+          mount_points:
+            - "^/dev(/|$)"
+            - "^/proc(/|$)"
+            - "^/sys(/|$)"
+            - "^/run(/|$)"
+          match_type: regexp
+        exclude_fs_types:
+          fs_types:
+            - "^(tmpfs|devtmpfs|overlay|squashfs|sysfs|proc)$"
+          match_type: regexp
+      load:
+      memory:
+      network:
+      paging:
+
+processors:
+  resource/host:
+    attributes:
+      - key: service.name
+        value: taskboard-ec2-host
+        action: upsert
+  batch:
+    timeout: 10s
+    send_batch_size: 256
+
+exporters:
+  otlp_http/openobserve:
+    endpoint: ${env:OTEL_EXPORTER_OTLP_ENDPOINT}
+    headers:
+      Authorization: ${env:OPENOBSERVE_AUTHORIZATION}
+      stream-name: default
+    compression: gzip
+
+service:
+  pipelines:
+    metrics:
+      receivers: [hostmetrics]
+      processors: [resource/host, batch]
+      exporters: [otlp_http/openobserve]
