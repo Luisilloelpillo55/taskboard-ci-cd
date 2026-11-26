@@ -131,7 +131,7 @@ No agregues tokens, claves ni encabezados reales a `.env.example`, archivos vers
 
 ### Metricas del host EC2
 
-Las metricas HTTP de Taskboard las envia la aplicacion; para CPU, memoria, disco, filesystem, carga, red y paging se usa OpenTelemetry Collector Contrib. El collector consulta el host cada 60 segundos y exporta por HTTPS al mismo endpoint OTLP y al stream `default`. No abre puertos de entrada. Las metricas de red son contadores de bytes: para mostrar ancho de banda en un dashboard hay que aplicar una tasa por segundo.
+Las metricas HTTP de Taskboard las envia la aplicacion; para CPU, memoria, disco, filesystem, carga, red y paging se usa OpenTelemetry Collector Contrib. El collector consulta el host cada 60 segundos y exporta por HTTPS al mismo endpoint OTLP y al stream `default`. No abre puertos de entrada. Para el panel de RAM usa `system_memory_utilization`, una gauge de fraccion entre 0 y 1 con atributo `state`; `system_memory_usage` es una suma acumulativa y no debe promediarse como lectura instantanea. Las metricas de red son contadores de bytes: para mostrar ancho de banda en un dashboard hay que aplicar una tasa por segundo.
 
 El instalador obtiene el valor `Authorization` de `OTEL_EXPORTER_OTLP_HEADERS` y lo guarda en `/etc/taskboard/otelcol.env`, un archivo local protegido que no se versiona. No compartas ni guardes credenciales en el repositorio. Despliega el collector:
 
