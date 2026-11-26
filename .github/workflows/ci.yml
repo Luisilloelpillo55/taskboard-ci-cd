@@ -1,10 +1,11 @@
-name: CI
+name: CI/CD
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -55,3 +56,90 @@ jobs:
           path: playwright-report/
           if-no-files-found: warn
           retention-days: 7
+
+  deploy:
+    name: Deploy EC2 via SSM
+    needs: test
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      vars.AWS_DEPLOY_ROLE_ARN != '' &&
+      vars.EC2_INSTANCE_ID != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: us-east-2
+      EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+
+    steps:
+      - name: Validate deployment target
+        env:
+          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          if [[ ! "$EC2_INSTANCE_ID" =~ ^i-[0-9a-f]{8,17}$ ]]; then
+            echo "Set the EC2_INSTANCE_ID repository variable to the target instance ID." >&2
+            exit 1
+          fi
+          if [[ ! "$AWS_DEPLOY_ROLE_ARN" =~ ^arn:aws:iam::[0-9]{12}:role/.+ ]]; then
+            echo "Set AWS_DEPLOY_ROLE_ARN to the GitHub OIDC deployment role ARN." >&2
+            exit 1
+          fi
+
+      - name: Configure AWS credentials through OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: TaskboardDeploy-${{ github.run_id }}
+
+      - name: Deploy through Systems Manager
+        env:
+          DEPLOY_COMMIT: ${{ github.sha }}
+        run: |
+          parameters='{"commands":["set -Eeuo pipefail","sudo -u taskboard git -C /opt/taskboard pull --ff-only","sudo bash /opt/taskboard/scripts/deploy-ec2.sh","sudo systemctl is-active taskboard","sudo systemctl is-active taskboard-hostmetrics","curl --fail --silent --show-error http://127.0.0.1:8000/api/health"]}'
+          command_id="$(aws ssm send-command \
+            --region "$AWS_REGION" \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "Taskboard deployment ${DEPLOY_COMMIT}" \
+            --timeout-seconds 900 \
+            --parameters "$parameters" \
+            --query 'Command.CommandId' \
+            --output text)"
+
+          status=""
+          for attempt in $(seq 1 120); do
+            status="$(aws ssm get-command-invocation \
+              --region "$AWS_REGION" \
+              --command-id "$command_id" \
+              --instance-id "$EC2_INSTANCE_ID" \
+              --query 'Status' \
+              --output text 2>/dev/null || true)"
+            case "$status" in
+              Success)
+                aws ssm get-command-invocation \
+                  --region "$AWS_REGION" \
+                  --command-id "$command_id" \
+                  --instance-id "$EC2_INSTANCE_ID" \
+                  --query '{Status:Status,Output:StandardOutputContent}' \
+                  --output json
+                exit 0
+                ;;
+              Failed|Cancelled|TimedOut|DeliveryTimedOut|ExecutionTimedOut|Undeliverable|Terminated)
+                aws ssm get-command-invocation \
+                  --region "$AWS_REGION" \
+                  --command-id "$command_id" \
+                  --instance-id "$EC2_INSTANCE_ID" \
+                  --query '{Status:Status,Error:StandardErrorContent,Output:StandardOutputContent}' \
+                  --output json
+                exit 1
+                ;;
+            esac
+            sleep 5
+          done
+
+          echo "Timed out waiting for the SSM deployment command (${command_id})." >&2
+          exit 1

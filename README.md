@@ -35,7 +35,62 @@ npm run test:e2e
 ```
 
 Playwright inicia una instancia local aislada en el puerto `8001` y usa `data/taskboard-e2e.db`, sin modificar la base normal de desarrollo.
-GitHub Actions ejecuta ambas suites en cada `push` y `pull request` hacia `main`; el reporte HTML de Playwright queda disponible como artefacto de la ejecucion.
+GitHub Actions ejecuta ambas suites en cada `push` y `pull request` hacia `main`; el reporte HTML de Playwright queda disponible como artefacto de la ejecucion. Cuando se configuran el rol OIDC y las variables de despliegue indicadas abajo, un `push` exitoso a `main` tambien despliega por SSM.
+
+### Despliegue continuo privado con GitHub Actions
+
+El job de despliegue solo corre en `main`, despues de que pasan las pruebas, y accede a EC2 mediante AWS Systems Manager. No requiere claves de acceso AWS en GitHub ni puertos publicos de entrada.
+
+1. En IAM, crea (si aun no existe) el proveedor OIDC `https://token.actions.githubusercontent.com`, con audiencia `sts.amazonaws.com`.
+2. Crea el rol `GitHubTaskboardDeployRole` con esta politica de confianza. Sustituye `<AWS_ACCOUNT_ID>` por el ID de tu cuenta:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "Federated": "arn:aws:iam::<AWS_ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com"
+    },
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+        "token.actions.githubusercontent.com:sub": "repo:Luisilloelpillo55/taskboard-ci-cd:ref:refs/heads/main"
+      }
+    }
+  }]
+}
+```
+
+3. Adjunta al rol esta politica de permisos. Sustituye `<AWS_ACCOUNT_ID>` y `<EC2_INSTANCE_ID>` por los valores de la cuenta y la instancia:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "ssm:SendCommand",
+      "Resource": [
+        "arn:aws:ssm:us-east-2::document/AWS-RunShellScript",
+        "arn:aws:ec2:us-east-2:<AWS_ACCOUNT_ID>:instance/<EC2_INSTANCE_ID>"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": "ssm:GetCommandInvocation",
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+4. En GitHub, abre **Settings → Secrets and variables → Actions → Variables** y crea:
+   - `AWS_DEPLOY_ROLE_ARN`: ARN del rol `GitHubTaskboardDeployRole`.
+   - `EC2_INSTANCE_ID`: ID de la instancia `Proyecto2`.
+
+La instancia debe conservar su rol `TaskboardEC2SSMRole` con `AmazonSSMManagedInstanceCore`. Sin ambas variables, el job de despliegue queda omitido; al configurarlas, un `push` a `main` o la ejecucion manual del workflow despliega la aplicacion y comprueba su health endpoint.
 
 ## Observabilidad con OpenTelemetry
 
