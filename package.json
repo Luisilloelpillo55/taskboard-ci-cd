@@ -1,0 +1,14 @@
+{
+  "name": "taskboard-ci-cd",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Aplicacion de demostracion para CI/CD y observabilidad",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0"
+  }
+}

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Organiza y da seguimiento a tus tareas.">
+    <title>Taskboard | Organiza tu trabajo</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <main class="layout">
+      <header class="page-header">
+        <p class="eyebrow">TU ESPACIO DE TRABAJO</p>
+        <h1>Taskboard</h1>
+        <p class="subtitle">Organiza tus pendientes y avanza, una tarea a la vez.</p>
+      </header>
+
+      <section id="auth-view" aria-label="Acceso a Taskboard">
+        <p id="auth-message" class="message message-error" role="alert" hidden></p>
+        <div class="auth-grid">
+          <section class="panel" aria-labelledby="login-heading">
+            <h2 id="login-heading">Iniciar sesión</h2>
+            <form id="login-form">
+              <label for="login-email">Correo electrónico (inicio de sesión)</label>
+              <input id="login-email" name="email" type="email" autocomplete="email" required>
+              <label for="login-password">Contraseña</label>
+              <input id="login-password" name="password" type="password"
+                     autocomplete="current-password" maxlength="128" required>
+              <button class="button button-primary" type="submit">Iniciar sesión</button>
+            </form>
+          </section>
+
+          <section class="panel" aria-labelledby="register-heading">
+            <h2 id="register-heading">Crear cuenta</h2>
+            <form id="register-form">
+              <label for="register-email">Correo electrónico (registro)</label>
+              <input id="register-email" name="email" type="email"
+                     autocomplete="email" maxlength="254" required>
+              <label for="register-password">Contraseña (mínimo 12 caracteres)</label>
+              <input id="register-password" name="password" type="password"
+                     autocomplete="new-password" minlength="12" maxlength="128" required>
+              <button class="button button-primary" type="submit">Crear cuenta</button>
+            </form>
+          </section>
+        </div>
+      </section>
+
+      <div id="board" hidden>
+        <div class="account-bar">
+          <span>Sesión iniciada como <strong id="account-email"></strong></span>
+          <button id="logout-button" class="button button-secondary" type="button">Cerrar sesión</button>
+        </div>
+        <section class="panel" aria-labelledby="create-heading">
+          <h2 id="create-heading">Agregar una tarea</h2>
+          <form id="task-form">
+            <label for="title">Título <span aria-hidden="true">*</span></label>
+            <input id="title" name="title" maxlength="120" required
+                   placeholder="Por ejemplo: preparar la presentación">
+            <label for="description">Descripción <span class="optional">(opcional)</span></label>
+            <textarea id="description" name="description" maxlength="500" rows="3"
+                      placeholder="Agrega detalles para tener todo claro"></textarea>
+            <button class="button button-primary" type="submit">Crear tarea</button>
+          </form>
+          <p id="form-message" class="message" role="status" aria-live="polite"></p>
+        </section>
+
+        <section class="tasks-section" aria-labelledby="tasks-heading">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">SEGUIMIENTO</p>
+              <h2 id="tasks-heading">Tus tareas</h2>
+            </div>
+            <span id="task-count" class="count" aria-live="polite">0 tareas</span>
+          </div>
+          <p id="loading-message" class="muted">Cargando tareas…</p>
+          <p id="empty-message" class="empty-state" hidden>Aún no hay tareas. Agrega la primera arriba.</p>
+          <p id="error-message" class="message message-error" role="alert" hidden></p>
+          <ul id="task-list" class="task-list" aria-label="Lista de tareas"></ul>
+        </section>
+      </div>
+      <footer>Taskboard · Proyecto de integración continua y observabilidad</footer>
+    </main>
+  </body>
+</html>
