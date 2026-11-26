@@ -99,7 +99,7 @@ jobs:
         env:
           DEPLOY_COMMIT: ${{ github.sha }}
         run: |
-          parameters='{"commands":["set -Eeuo pipefail","sudo -u taskboard git -C /opt/taskboard pull --ff-only","sudo bash /opt/taskboard/scripts/deploy-ec2.sh","sudo systemctl is-active taskboard","sudo systemctl is-active taskboard-hostmetrics","curl --fail --silent --show-error http://127.0.0.1:8000/api/health"]}'
+          parameters='{"commands":["set -eu","sudo -u taskboard git -C /opt/taskboard pull --ff-only","sudo bash /opt/taskboard/scripts/deploy-ec2.sh","sudo systemctl is-active taskboard","sudo systemctl is-active taskboard-hostmetrics","curl --fail --silent --show-error http://127.0.0.1:8000/api/health"]}'
           command_id="$(aws ssm send-command \
             --region "$AWS_REGION" \
             --instance-ids "$EC2_INSTANCE_ID" \
