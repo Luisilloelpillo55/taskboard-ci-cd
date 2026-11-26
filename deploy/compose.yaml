@@ -1,0 +1,59 @@
+services:
+  taskboard:
+    image: ${TASKBOARD_IMAGE:-ghcr.io/luisilloelpillo55/taskboard-ci-cd:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: taskboard
+    init: true
+    user: "${TASKBOARD_UID:-10001}:${TASKBOARD_GID:-10001}"
+    env_file:
+      - ${TASKBOARD_APP_ENV_FILE:-.env}
+    environment:
+      TASKS_DB_PATH: /data/tasks.db
+    ports:
+      - "${TASKBOARD_BIND_ADDRESS:-127.0.0.1}:8000:8000"
+    volumes:
+      - ${TASKBOARD_DATA_DIR:-taskboard-data}:/data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.11.2
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --url
+      - http://taskboard:8000
+      - --allowed-mail
+      - ${TUNNEL_ALLOWED_EMAIL:-}
+    profiles:
+      - demo
+    depends_on:
+      taskboard:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  taskboard-data:

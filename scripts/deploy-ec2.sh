@@ -14,7 +14,10 @@ if [[ "${repo_dir}" != "/opt/taskboard" ]]; then
 fi
 
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv python3-pip curl
+DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-v2 curl
+
+systemctl enable --now docker
+docker compose version
 
 if ! id taskboard >/dev/null 2>&1; then
     useradd --system --home-dir /opt/taskboard --shell /usr/sbin/nologin taskboard
@@ -27,26 +30,45 @@ if [[ ! -f /etc/taskboard/taskboard.env ]]; then
         > /etc/taskboard/taskboard.env
     chmod 0600 /etc/taskboard/taskboard.env
 fi
+if ! grep -qx 'COOKIE_SECURE=true' /etc/taskboard/taskboard.env; then
+    echo "Set COOKIE_SECURE=true in /etc/taskboard/taskboard.env before deploying." >&2
+    exit 1
+fi
+
+image="${TASKBOARD_IMAGE:-ghcr.io/luisilloelpillo55/taskboard-ci-cd:latest}"
+if [[ ! "${image}" =~ ^ghcr\.io/luisilloelpillo55/taskboard-ci-cd:(latest|sha-[0-9a-f]{40})$ ]]; then
+    echo "TASKBOARD_IMAGE must be the public Taskboard GHCR image with a supported tag." >&2
+    exit 1
+fi
 
 chown -R taskboard:taskboard /opt/taskboard
-runuser -u taskboard -- python3 -m venv /opt/taskboard/.venv
-runuser -u taskboard -- /opt/taskboard/.venv/bin/python -m pip install \
-    -r /opt/taskboard/requirements.txt
+cat > /opt/taskboard/.env <<EOF
+TASKBOARD_APP_ENV_FILE=/etc/taskboard/taskboard.env
+TASKBOARD_DATA_DIR=/var/lib/taskboard
+TASKBOARD_UID=$(id -u taskboard)
+TASKBOARD_GID=$(id -g taskboard)
+TASKBOARD_BIND_ADDRESS=127.0.0.1
+TASKBOARD_IMAGE=${image}
+EOF
+chown root:root /opt/taskboard/.env
+chmod 0600 /opt/taskboard/.env
 
-install -m 0644 /opt/taskboard/deploy/taskboard.service \
-    /etc/systemd/system/taskboard.service
-systemctl daemon-reload
-systemctl enable taskboard
-systemctl restart taskboard
-
+compose=(docker compose --project-directory /opt/taskboard -f /opt/taskboard/deploy/compose.yaml)
+"${compose[@]}" pull taskboard
+if systemctl list-unit-files taskboard.service --no-legend | grep -q '^taskboard.service'; then
+    systemctl disable --now taskboard.service
+fi
+"${compose[@]}" up -d --force-recreate taskboard
 for attempt in {1..15}; do
     if curl --fail --silent http://127.0.0.1:8000/api/health; then
-        printf '\nTaskboard is running on localhost:8000.\n'
+        printf '\nTaskboard container is healthy on localhost:8000.\n'
+        "${compose[@]}" ps taskboard
         exit 0
     fi
     sleep 2
 done
 
-systemctl --no-pager --full status taskboard || true
-echo "Taskboard did not become healthy; inspect journalctl -u taskboard." >&2
+"${compose[@]}" ps taskboard
+"${compose[@]}" logs --no-color --tail=80 taskboard >&2
+echo "Taskboard did not become healthy; inspect the container logs." >&2
 exit 1

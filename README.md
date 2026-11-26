@@ -7,6 +7,7 @@ Aplicacion web en espanol para crear, consultar, avanzar y eliminar tareas. Este
 - Python 3.10 o posterior
 - Node.js 20 o posterior
 - npm
+- Docker Desktop (opcional para ejecutar la version en contenedor localmente)
 
 ## Preparar el entorno en Windows
 
@@ -27,6 +28,17 @@ Abre `http://127.0.0.1:8000`. La API interactiva esta disponible en `http://127.
 
 La aplicacion crea su base SQLite en `data/tasks.db`. Para usar otra ruta, configura `TASKS_DB_PATH`.
 
+### Ejecutar en Docker
+
+Con Docker Desktop iniciado, copia `.env.example` a `.env` y ejecuta:
+
+```powershell
+Copy-Item .env.example .env
+docker compose --project-directory . -f deploy/compose.yaml up --build
+```
+
+La aplicacion queda en `http://127.0.0.1:8000` y los datos se guardan en el volumen Docker `taskboard-data`. Para detenerla usa `docker compose --project-directory . -f deploy/compose.yaml down`; no agregues `-v` si quieres conservar la base de datos. El perfil `demo` de Cloudflare no se inicia por defecto.
+
 ## Pruebas
 
 ```powershell
@@ -38,9 +50,11 @@ npm run report
 Playwright inicia una instancia local aislada en el puerto `8001` y usa `data/taskboard-e2e.db`, sin modificar la base normal de desarrollo.
 Para ver las pruebas de interfaz en una ventana de Chromium, ejecuta `npm run test:e2e:headed`; `npm run test:e2e` permanece en modo headless para CI. La suite Playwright contiene pruebas de API (sin mostrar datos de backend en pantalla) y de navegador; ambas aparecen en el mismo reporte HTML. Las capturas de las vistas principales se adjuntan a sus pruebas y pueden abrirse desde el reporte con `npm run report`. Pytest se conserva para pruebas internas del backend y medicion de cobertura; genera `api-test-report.html` y `backend-coverage/index.html`. GitHub Actions ejecuta ambas suites en cada `push` y `pull request` hacia `main`, y publica los tres reportes (`api-test-report`, `backend-coverage` y `playwright-report`) como artefactos durante 7 dias. Cuando se configuran el rol OIDC y las variables de despliegue indicadas abajo, un `push` exitoso a `main` tambien despliega por SSM.
 
-### Despliegue continuo privado con GitHub Actions
+### Despliegue continuo con Docker, GHCR y GitHub Actions
 
-El job de despliegue solo corre en `main`, despues de que pasan las pruebas, y accede a EC2 mediante AWS Systems Manager. No requiere claves de acceso AWS en GitHub ni puertos publicos de entrada.
+En `main`, GitHub Actions ejecuta Pytest y Playwright; solo si ambas suites pasan, construye y publica la imagen Docker en GHCR y luego despliega por AWS Systems Manager. La imagen se etiqueta con el SHA del commit y con `latest`. EC2 descarga la imagen publica; no necesita credenciales de GHCR, claves de acceso AWS en GitHub ni puertos publicos de entrada. El job de despliegue usa la misma configuracion OIDC y SSM descrita abajo.
+
+Despues de la primera publicacion, configura la visibilidad de `taskboard-ci-cd` en **GitHub → Packages → paquete → Package settings → Change visibility → Public**. GHCR no hace publica automaticamente una imagen por el hecho de que el repositorio sea publico. El job de despliegue tambien exige la variable `GHCR_IMAGE_PUBLIC=true`: creala solo despues de comprobar que el paquete es publico. Asi el primer push publica la imagen, pero no intenta descargarla anonimamente mientras siga privada. No publiques `.env`, contrasenas, tokens de OpenObserve ni credenciales de AWS dentro de la imagen o del repositorio.
 
 1. En IAM, crea (si aun no existe) el proveedor OIDC `https://token.actions.githubusercontent.com`, con audiencia `sts.amazonaws.com`.
 2. Crea el rol `GitHubTaskboardDeployRole` con esta politica de confianza. Sustituye `<AWS_ACCOUNT_ID>` por el ID de tu cuenta:
@@ -90,8 +104,18 @@ El job de despliegue solo corre en `main`, despues de que pasan las pruebas, y a
 4. En GitHub, abre **Settings → Secrets and variables → Actions → Variables** y crea:
    - `AWS_DEPLOY_ROLE_ARN`: ARN del rol `GitHubTaskboardDeployRole`.
    - `EC2_INSTANCE_ID`: ID de la instancia `Proyecto2`.
+   - `GHCR_IMAGE_PUBLIC`: asigna `true` unicamente despues de hacer publica la imagen en GHCR.
 
-La instancia debe conservar su rol `TaskboardEC2SSMRole` con `AmazonSSMManagedInstanceCore`. Sin ambas variables, el job de despliegue queda omitido; al configurarlas, un `push` a `main` o la ejecucion manual del workflow despliega la aplicacion y comprueba su health endpoint.
+La instancia debe conservar su rol `TaskboardEC2SSMRole` con `AmazonSSMManagedInstanceCore`. En el primer push, el workflow prueba y publica la imagen; el despliegue queda omitido hasta que GHCR sea publico y existan las tres variables anteriores. Despues de habilitarlo, puedes ejecutar `workflow_dispatch` en `main` para desplegar sin esperar otro cambio de codigo.
+
+### Eventos CI/CD en OpenObserve
+
+Para registrar cada resultado de pruebas y cada intento de despliegue, configura en **Settings → Secrets and variables → Actions**:
+
+- Variables `OPENOBSERVE_URL` (URL base HTTPS, sin ruta), `OPENOBSERVE_ORG` y `OPENOBSERVE_STREAM` (por ejemplo, `ci_events`).
+- Secret `OPENOBSERVE_AUTHORIZATION` con el valor completo `Basic ...` requerido por OpenObserve. No pegues este valor en el chat ni lo guardes en el repositorio.
+
+Los jobs `report-ci` y `report-deploy` envian registros JSON al endpoint `_json` e incluyen tipo de evento, resultado, SHA, rama, actor, repositorio, intento y enlace al run; el evento de despliegue tambien incluye los resultados de tests e imagen. Si no se configuran las cuatro entradas, los eventos se omiten. Un fallo al reportar se muestra como fallo en su job, pero no cambia el gate de pruebas ni detiene un despliegue independiente.
 
 ## Observabilidad con OpenTelemetry
 
@@ -107,7 +131,7 @@ No agregues tokens, claves ni encabezados reales a `.env.example`, archivos vers
 
 ### Metricas del host EC2
 
-Las metricas HTTP de Taskboard las envia la aplicacion; para CPU, memoria, disco, filesystem, carga, red y paging se usa OpenTelemetry Collector Contrib. El collector consulta el host cada 60 segundos y exporta por HTTPS al mismo endpoint OTLP y al stream `default`. No abre puertos de entrada.
+Las metricas HTTP de Taskboard las envia la aplicacion; para CPU, memoria, disco, filesystem, carga, red y paging se usa OpenTelemetry Collector Contrib. El collector consulta el host cada 60 segundos y exporta por HTTPS al mismo endpoint OTLP y al stream `default`. No abre puertos de entrada. Las metricas de red son contadores de bytes: para mostrar ancho de banda en un dashboard hay que aplicar una tasa por segundo.
 
 El instalador obtiene el valor `Authorization` de `OTEL_EXPORTER_OTLP_HEADERS` y lo guarda en `/etc/taskboard/otelcol.env`, un archivo local protegido que no se versiona. No compartas ni guardes credenciales en el repositorio. Despliega el collector:
 
@@ -119,18 +143,57 @@ sudo systemctl is-active taskboard-hostmetrics
 
 El instalador descarga una version fijada de OpenTelemetry Collector Contrib, verifica su SHA-256, valida la configuracion y crea un servicio `systemd` dedicado. En OpenObserve, busca las metricas del recurso `service_name=taskboard-ec2-host`; la primera muestra puede tardar hasta un minuto.
 
+La temperatura no esta incluida en la configuracion del Collector. Comprueba desde Session Manager si la VM expone sensores termicos:
+
+```bash
+found=0
+for sensor in /sys/class/thermal/thermal_zone*/temp; do
+  if [ -r "$sensor" ]; then
+    awk -v file="$sensor" '{ printf "%s: %.1f C\n", file, $1 / 1000 }' "$sensor"
+    found=1
+  fi
+done
+if [ "$found" -eq 0 ]; then
+  echo "El sistema invitado no expone sensores de temperatura."
+fi
+```
+
+No se deben inventar lecturas si EC2 no expone un sensor accesible. Los dashboards y alertas de OpenObserve todavia deben crearse/verificarse en la cuenta; los eventos `ci_events`, metricas de aplicacion y host son las fuentes para ello.
+
 ## Despliegue inicial en Ubuntu EC2
 
-El script `scripts/deploy-ec2.sh` instala dependencias, crea un usuario de sistema y configura un servicio `systemd`. Por seguridad, Uvicorn escucha solo en `127.0.0.1:8000`; este paso no abre puertos ni publica la app. Desde Session Manager, instala Git y clona el repo en la ruta esperada:
+El script `scripts/deploy-ec2.sh` instala Docker Compose, crea un usuario de sistema y migra el servicio anterior a un contenedor. La base SQLite persiste en `/var/lib/taskboard`; el proceso del contenedor no es root y el puerto publicado queda limitado a `127.0.0.1:8000`. El script no modifica el grupo de seguridad. Desde Session Manager, instala Git y clona el repo en la ruta esperada:
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y git
 sudo git clone https://github.com/Luisilloelpillo55/taskboard-ci-cd.git /opt/taskboard
-sudo bash /opt/taskboard/scripts/deploy-ec2.sh
+sudo env TASKBOARD_IMAGE=ghcr.io/luisilloelpillo55/taskboard-ci-cd:latest \
+  bash /opt/taskboard/scripts/deploy-ec2.sh
 ```
 
-La comprobacion final del script consulta `/api/health` desde la propia instancia. Verifica el servicio con `sudo systemctl status taskboard --no-pager` y sus logs con `sudo journalctl -u taskboard -n 50 --no-pager`. No abras el acceso web ni ingreses contrasenas reales hasta configurar HTTPS; el servicio aun no tiene un proxy publico.
+En el flujo CI, SSM entrega al script la etiqueta inmutable del commit probado, no `latest`. La comprobacion consulta `/api/health` desde la instancia. Inspecciona el contenedor con `sudo docker compose --project-directory /opt/taskboard -f /opt/taskboard/deploy/compose.yaml ps` y los logs con el mismo comando seguido de `logs --tail=50 taskboard`.
+
+### Enlace HTTPS temporal para la demostracion (sin dominio)
+
+No abras puertos entrantes en el grupo de seguridad ni publiques el login directamente por HTTP. Con el contenedor sano y una vez publicada la imagen, un Quick Tunnel crea una URL HTTPS temporal y permite restringir el acceso al correo del profesor mediante PIN de un solo uso. Necesitas conocer ese correo; no hace falta compartirlo en este chat. Desde Session Manager ejecuta:
+
+```bash
+sudo env TUNNEL_ALLOWED_EMAIL='correo-del-profesor@example.com' \
+  docker compose --project-directory /opt/taskboard \
+  -f /opt/taskboard/deploy/compose.yaml --profile demo up -d cloudflared
+sudo docker compose --project-directory /opt/taskboard \
+  -f /opt/taskboard/deploy/compose.yaml logs -f cloudflared
+```
+
+Comparte la URL `https://....trycloudflare.com` que aparece en los logs. El profesor introduce ese mismo correo y el PIN que Cloudflare le envíe. Para apagar el acceso:
+
+```bash
+sudo docker compose --project-directory /opt/taskboard \
+  -f /opt/taskboard/deploy/compose.yaml stop cloudflared
+```
+
+Quick Tunnels son solo para pruebas: no tienen garantia de disponibilidad, la URL cambia al reiniciar el tunel y deja de funcionar al detenerlo. La cookie `Secure` se mantiene activada en EC2. El tráfico externo entra por HTTPS a Cloudflare; la instancia acepta solo conexiones salientes del túnel y no requiere abrir puertos de entrada.
 
 ## Cuentas y sesiones
 
