@@ -30,12 +30,13 @@ La aplicacion crea su base SQLite en `data/tasks.db`. Para usar otra ruta, confi
 ## Pruebas
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m pytest -q --html=api-test-report.html --self-contained-html --cov=app --cov-report=term-missing --cov-report=html:backend-coverage
 npm run test:e2e
+npm run report
 ```
 
 Playwright inicia una instancia local aislada en el puerto `8001` y usa `data/taskboard-e2e.db`, sin modificar la base normal de desarrollo.
-GitHub Actions ejecuta ambas suites en cada `push` y `pull request` hacia `main`; el reporte HTML de Playwright queda disponible como artefacto de la ejecucion. Cuando se configuran el rol OIDC y las variables de despliegue indicadas abajo, un `push` exitoso a `main` tambien despliega por SSM.
+Pytest genera `api-test-report.html` y `backend-coverage/index.html`; Playwright genera el reporte HTML en `playwright-report/`, que `npm run report` abre en el navegador. GitHub Actions ejecuta ambas suites en cada `push` y `pull request` hacia `main`, y publica los tres reportes (`api-test-report`, `backend-coverage` y `playwright-report`) como artefactos durante 7 dias. Cuando se configuran el rol OIDC y las variables de despliegue indicadas abajo, un `push` exitoso a `main` tambien despliega por SSM.
 
 ### Despliegue continuo privado con GitHub Actions
 

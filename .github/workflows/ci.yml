@@ -43,10 +43,34 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run API tests
-        run: .venv/bin/python -m pytest -q
+        run: >-
+          .venv/bin/python -m pytest -q
+          --html=api-test-report.html
+          --self-contained-html
+          --cov=app
+          --cov-report=term-missing
+          --cov-report=html:backend-coverage
 
       - name: Run browser tests
         run: npm run test:e2e
+
+      - name: Upload backend coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend-coverage/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload API test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-test-report
+          path: api-test-report.html
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Upload Playwright report
         if: always()

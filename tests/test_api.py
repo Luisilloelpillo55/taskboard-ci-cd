@@ -1,5 +1,6 @@
 import logging
 import sqlite3
+from contextlib import closing
 
 from starlette.testclient import TestClient
 
@@ -67,21 +68,22 @@ def test_update_rejects_empty_or_null_fields(client):
 def test_legacy_database_migration_preserves_tasks(tmp_path, monkeypatch):
     database_path = tmp_path / "legacy.db"
     monkeypatch.setenv("TASKS_DB_PATH", str(database_path))
-    with sqlite3.connect(database_path) as connection:
-        connection.execute(
-            """
-            CREATE TABLE tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                completed INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL
+    with closing(sqlite3.connect(database_path)) as connection:
+        with connection:
+            connection.execute(
+                """
+                CREATE TABLE tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    completed INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                )
+                """
             )
-            """
-        )
-        connection.execute(
-            "INSERT INTO tasks (id, title, completed, created_at) "
-            "VALUES (7, 'Tarea anterior', 1, '2026-01-02T03:04:05Z')"
-        )
+            connection.execute(
+                "INSERT INTO tasks (id, title, completed, created_at) "
+                "VALUES (7, 'Tarea anterior', 1, '2026-01-02T03:04:05Z')"
+            )
 
     with TestClient(app) as legacy_client:
         assert register_user(legacy_client).status_code == 201
@@ -91,7 +93,7 @@ def test_legacy_database_migration_preserves_tasks(tmp_path, monkeypatch):
     assert response.status_code == 200
     assert response.json() == []
     assert created.status_code == 201
-    with sqlite3.connect(database_path) as connection:
+    with closing(sqlite3.connect(database_path)) as connection:
         assert connection.execute(
             "SELECT id, title, status, user_id FROM tasks WHERE id = 7"
         ).fetchone() == (7, "Tarea anterior", "done", None)
@@ -157,22 +159,23 @@ def test_previous_authenticated_schema_migrates_tasks_as_unowned(
 ):
     database_path = tmp_path / "previous.db"
     monkeypatch.setenv("TASKS_DB_PATH", str(database_path))
-    with sqlite3.connect(database_path) as connection:
-        connection.execute(
-            """
-            CREATE TABLE tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                description TEXT NOT NULL DEFAULT '',
-                status TEXT NOT NULL DEFAULT 'todo',
-                created_at TEXT NOT NULL
+    with closing(sqlite3.connect(database_path)) as connection:
+        with connection:
+            connection.execute(
+                """
+                CREATE TABLE tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'todo',
+                    created_at TEXT NOT NULL
+                )
+                """
             )
-            """
-        )
-        connection.execute(
-            "INSERT INTO tasks (title, status, created_at) "
-            "VALUES ('Tarea existente', 'in_progress', '2026-01-02T03:04:05Z')"
-        )
+            connection.execute(
+                "INSERT INTO tasks (title, status, created_at) "
+                "VALUES ('Tarea existente', 'in_progress', '2026-01-02T03:04:05Z')"
+            )
 
     with TestClient(app) as migrated_client:
         assert register_user(migrated_client).status_code == 201
@@ -180,7 +183,7 @@ def test_previous_authenticated_schema_migrates_tasks_as_unowned(
         created = migrated_client.post("/api/tasks", json={"title": "Tarea nueva"})
 
     assert created.status_code == 201
-    with sqlite3.connect(database_path) as connection:
+    with closing(sqlite3.connect(database_path)) as connection:
         rows = connection.execute(
             "SELECT title, status, user_id FROM tasks ORDER BY id"
         ).fetchall()

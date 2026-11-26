@@ -184,7 +184,8 @@ def get_current_user(request: Request) -> UserPublic:
                 "DELETE FROM sessions WHERE token_hash = ? AND expires_at <= ?",
                 (token_hash, now),
             )
-            raise _invalid_credentials()
+    if user is None:
+        raise _invalid_credentials()
     return UserPublic.model_validate(dict(user))
 
 
