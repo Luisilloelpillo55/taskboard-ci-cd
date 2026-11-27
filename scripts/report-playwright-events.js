@@ -42,8 +42,11 @@ function getStepLines(steps = [], depth = 0) {
 function buildEvents(report, metadata = process.env) {
   const events = [];
 
-  function addSuite(suite, parentFile = "") {
+  function addSuite(suite, parentFile = "", parentTitles = []) {
     const testFile = suite.file || parentFile;
+    const suiteTitles = suite.title
+      ? [...parentTitles, suite.title]
+      : parentTitles;
 
     for (const spec of suite.specs || []) {
       for (const test of spec.tests || []) {
@@ -79,6 +82,18 @@ function buildEvents(report, metadata = process.env) {
 
           const output = redactOutput(outputParts.join("\n\n"));
           const status = attempt.status || "unknown";
+          const firstError = (attempt.errors || []).find(
+            (error) => error.message || error.stack,
+          );
+          const failureReason =
+            status === "passed"
+              ? ""
+              : redactOutput(
+                  (firstError && (firstError.message || firstError.stack)) ||
+                    stderr ||
+                    stdout ||
+                    "Playwright reported a failure without diagnostic details.",
+                ).slice(0, 1000);
           const level =
             status === "passed"
               ? "info"
@@ -94,7 +109,14 @@ function buildEvents(report, metadata = process.env) {
             result: status,
             test_status: test.status || "unknown",
             test_name: spec.title,
+            test_suite: suiteTitles.join(" > "),
             test_file: spec.file || testFile,
+            test_line: spec.line || 0,
+            component: suiteTitles.includes("User account API")
+              ? "backend"
+              : "frontend",
+            error_type: firstError ? firstError.name || "" : "",
+            failure_reason: failureReason,
             test_project: test.projectName || "",
             duration_ms: Number(attempt.duration) || 0,
             retry_index: Number.isInteger(attempt.retry) ? attempt.retry : index,
@@ -115,12 +137,12 @@ function buildEvents(report, metadata = process.env) {
       }
 
       for (const childSuite of spec.suites || []) {
-        addSuite(childSuite, testFile);
+        addSuite(childSuite, testFile, suiteTitles);
       }
     }
 
     for (const childSuite of suite.suites || []) {
-      addSuite(childSuite, testFile);
+      addSuite(childSuite, testFile, suiteTitles);
     }
   }
 

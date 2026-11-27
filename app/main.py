@@ -1,4 +1,6 @@
 import logging
+import re
+from time import perf_counter
 from contextlib import asynccontextmanager
 from collections.abc import Awaitable, Callable
 from enum import Enum
@@ -6,8 +8,14 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
+)
+from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import FileResponse, Response as StarletteResponse
 
 from app.auth import CurrentUser, router as auth_router
@@ -16,6 +24,68 @@ from app.telemetry import configure_telemetry, shutdown_telemetry
 
 
 logger = logging.getLogger(__name__)
+_SENSITIVE_VALUE = re.compile(
+    r"((?:authorization|password|passwd|token|secret|api[_-]?key|cookie)\s*[:=]\s*)"
+    r'(?:"[^"]*"|\'[^\']*\'|(?:Basic|Bearer)\s+[A-Za-z0-9._~+/-]+=*|[^\s,;]+)',
+    re.IGNORECASE,
+)
+_AUTH_HEADER = re.compile(
+    r"\b(Basic|Bearer)\s+[A-Za-z0-9._~+/-]+=*",
+    re.IGNORECASE,
+)
+
+
+def _sanitize_reason(reason: str) -> str:
+    sanitized = _SENSITIVE_VALUE.sub(r"\1[REDACTED]", reason)
+    return _AUTH_HEADER.sub(r"\1 [REDACTED]", sanitized)[:1000]
+
+
+def _request_failure_fields(
+    request: Request,
+    *,
+    status_code: int,
+    error_type: str,
+    failure_reason: str,
+) -> dict[str, Any]:
+    started_at = getattr(request.state, "started_at", None)
+    duration_ms = (
+        round((perf_counter() - started_at) * 1000, 3)
+        if started_at is not None
+        else None
+    )
+    return {
+        "event_type": "api_request_error",
+        "component": "backend",
+        "http_method": request.method,
+        "http_route": request.url.path,
+        "http_status_code": status_code,
+        "error_type": error_type,
+        "failure_reason": _sanitize_reason(failure_reason),
+        "duration_ms": duration_ms,
+    }
+
+
+def _log_request_failure(
+    request: Request,
+    *,
+    status_code: int,
+    error_type: str,
+    failure_reason: str,
+) -> None:
+    level = logging.ERROR if status_code >= 500 else logging.WARNING
+    logger.log(
+        level,
+        "API request failed: %s %s returned HTTP %s",
+        request.method,
+        request.url.path,
+        status_code,
+        extra=_request_failure_fields(
+            request,
+            status_code=status_code,
+            error_type=error_type,
+            failure_reason=failure_reason,
+        ),
+    )
 
 
 class TaskStatus(str, Enum):
@@ -74,10 +144,59 @@ async def disable_api_caching(
     request: Request,
     call_next: Callable[[Request], Awaitable[StarletteResponse]],
 ) -> StarletteResponse:
-    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        request.state.started_at = perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        if request.url.path.startswith("/api/"):
+            _log_request_failure(
+                request,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                error_type=type(exc).__name__,
+                failure_reason=str(exc) or "Unhandled API exception.",
+            )
+        raise
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     return response
+
+
+@app.exception_handler(StarletteHTTPException)
+async def log_http_exception(
+    request: Request,
+    exc: StarletteHTTPException,
+) -> StarletteResponse:
+    if not (
+        request.url.path == "/api/auth/login"
+        and exc.status_code == status.HTTP_401_UNAUTHORIZED
+    ):
+        reason = exc.detail if isinstance(exc.detail, str) else type(exc.detail).__name__
+        _log_request_failure(
+            request,
+            status_code=exc.status_code,
+            error_type=type(exc).__name__,
+            failure_reason=reason,
+        )
+    return await http_exception_handler(request, exc)
+
+
+@app.exception_handler(RequestValidationError)
+async def log_request_validation_error(
+    request: Request,
+    exc: RequestValidationError,
+) -> StarletteResponse:
+    reasons = []
+    for error in exc.errors()[:10]:
+        location = ".".join(str(part) for part in error.get("loc", ()))
+        reasons.append(f"{location}: {error.get('msg', 'Invalid input')}")
+    _log_request_failure(
+        request,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        error_type="RequestValidationError",
+        failure_reason="; ".join(reasons) or "Request validation failed.",
+    )
+    return await request_validation_exception_handler(request, exc)
 
 
 @app.get("/", include_in_schema=False)
@@ -116,7 +235,11 @@ def create_task(task: TaskCreate, user: CurrentUser) -> dict:
         ).fetchone()
     logger.info(
         "Task created",
-        extra={"event_name": "task.created", "task_id": row["id"]},
+        extra={
+            "event_name": "task.created",
+            "component": "backend",
+            "task_id": row["id"],
+        },
     )
     return dict(row)
 
@@ -148,7 +271,11 @@ def update_task(task_id: int, update: TaskUpdate, user: CurrentUser) -> dict:
         ).fetchone()
     logger.info(
         "Task updated",
-        extra={"event_name": "task.updated", "task_id": task_id},
+        extra={
+            "event_name": "task.updated",
+            "component": "backend",
+            "task_id": task_id,
+        },
     )
     return dict(row)
 
@@ -164,6 +291,10 @@ def delete_task(task_id: int, user: CurrentUser) -> Response:
             raise HTTPException(status_code=404, detail="Task not found.")
     logger.info(
         "Task deleted",
-        extra={"event_name": "task.deleted", "task_id": task_id},
+        extra={
+            "event_name": "task.deleted",
+            "component": "backend",
+            "task_id": task_id,
+        },
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

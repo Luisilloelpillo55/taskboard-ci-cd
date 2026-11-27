@@ -31,20 +31,25 @@ jobs:
           cache: npm
 
       - name: Install Python dependencies
+        id: python-deps
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install --upgrade pip
           .venv/bin/python -m pip install -r requirements.txt
 
       - name: Install Node dependencies
+        id: node-deps
         run: npm ci
 
       - name: Install Playwright browser
+        id: playwright-browser
         run: npx playwright install --with-deps chromium
 
       - name: Run API tests
         run: >-
           .venv/bin/python -m pytest -q
+          --junitxml=api-test-results.xml
+          -o junit_logging=all
           --html=api-test-report.html
           --self-contained-html
           --cov=app
@@ -52,9 +57,18 @@ jobs:
           --cov-report=html:backend-coverage
 
       - name: Test Playwright event reporter
+        if: always() && steps.node-deps.outcome == 'success'
         run: node --test scripts/report-playwright-events.test.js
 
+      - name: Run isolated API load test
+        if: always() && steps.python-deps.outcome == 'success'
+        run: .venv/bin/python scripts/load_test_api.py --concurrency 20 --requests-per-worker 50
+
       - name: Run Playwright API and browser tests
+        if: >-
+          always() &&
+          steps.node-deps.outcome == 'success' &&
+          steps.playwright-browser.outcome == 'success'
         run: npm run test:e2e
 
       - name: Upload backend coverage report
@@ -72,6 +86,17 @@ jobs:
         with:
           name: api-test-report
           path: api-test-report.html
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload API diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-diagnostics
+          path: |
+            api-test-results.xml
+            api-load-test.json
           if-no-files-found: warn
           retention-days: 7
 
@@ -235,8 +260,21 @@ jobs:
           name: playwright-json-results
           path: playwright-json-results
 
+      - name: Download API diagnostics
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: api-diagnostics
+          path: api-diagnostics
+
+      - name: Set up Python for test-event reporting
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Send test result event
         if: >-
+          always() &&
           env.OPENOBSERVE_URL != '' &&
           env.OPENOBSERVE_ORG != '' &&
           env.OPENOBSERVE_STREAM != '' &&
@@ -259,6 +297,7 @@ jobs:
 
       - name: Send Playwright case events to OpenObserve
         if: >-
+          always() &&
           env.OPENOBSERVE_URL != '' &&
           env.OPENOBSERVE_ORG != '' &&
           env.OPENOBSERVE_STREAM != '' &&
@@ -276,6 +315,30 @@ jobs:
           CI_RUN_ATTEMPT: ${{ github.run_attempt }}
           CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: node scripts/report-playwright-events.js playwright-json-results/playwright-results.json
+
+      - name: Send backend and load-test events to OpenObserve
+        if: >-
+          always() &&
+          env.OPENOBSERVE_URL != '' &&
+          env.OPENOBSERVE_ORG != '' &&
+          env.OPENOBSERVE_STREAM != '' &&
+          env.OPENOBSERVE_AUTHORIZATION != ''
+        env:
+          OPENOBSERVE_URL: ${{ vars.OPENOBSERVE_URL }}
+          OPENOBSERVE_ORG: ${{ vars.OPENOBSERVE_ORG }}
+          OPENOBSERVE_STREAM: ${{ vars.OPENOBSERVE_STREAM }}
+          OPENOBSERVE_AUTHORIZATION: ${{ secrets.OPENOBSERVE_AUTHORIZATION }}
+          CI_COMMIT_SHA: ${{ github.sha }}
+          CI_BRANCH: ${{ github.ref_name }}
+          CI_ACTOR: ${{ github.actor }}
+          CI_REPOSITORY: ${{ github.repository }}
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_RUN_ATTEMPT: ${{ github.run_attempt }}
+          CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: >-
+          python scripts/report_test_events.py
+          --junit api-diagnostics/api-test-results.xml
+          --load api-diagnostics/api-load-test.json
 
   report-deploy:
     name: Send deployment result to OpenObserve

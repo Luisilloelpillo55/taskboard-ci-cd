@@ -50,6 +50,14 @@ npm run report
 Playwright inicia una instancia local aislada en el puerto `8001` y usa `data/taskboard-e2e.db`, sin modificar la base normal de desarrollo.
 Para ver las pruebas de interfaz en una ventana de Chromium, ejecuta `npm run test:e2e:headed`; `npm run test:e2e` permanece en modo headless para CI. La suite Playwright contiene pruebas de API (sin mostrar datos de backend en pantalla) y de navegador; ambas aparecen en el mismo reporte HTML. Las capturas de las vistas principales se adjuntan a sus pruebas y pueden abrirse desde el reporte con `npm run report`. Pytest se conserva para pruebas internas del backend y medicion de cobertura; genera `api-test-report.html` y `backend-coverage/index.html`. GitHub Actions ejecuta ambas suites en cada `push` y `pull request` hacia `main`, y publica los tres reportes (`api-test-report`, `backend-coverage` y `playwright-report`) como artefactos durante 7 dias. Cuando se configuran el rol OIDC y las variables de despliegue indicadas abajo, un `push` exitoso a `main` tambien despliega por SSM.
 
+Para medir la API sin tocar la base de desarrollo ni el servidor publicado, ejecuta la prueba local y aislada de 20 clientes concurrentes con 50 solicitudes cada uno (1.000 solicitudes en total):
+
+```powershell
+.\.venv\Scripts\python.exe scripts/load_test_api.py --concurrency 20 --requests-per-worker 50
+```
+
+El script levanta una instancia local con SQLite temporal, prueba lecturas y escrituras autenticadas, valida que las escrituras persistan y escribe `api-load-test.json`. La prueba falla si hay solicitudes fallidas o si el p95 supera 2 segundos. Este perfil acotado es una verificacion de regresion en CI; no constituye una garantia de capacidad para otras instancias o cargas de produccion.
+
 ### Despliegue continuo con Docker, GHCR y GitHub Actions
 
 En `main`, GitHub Actions ejecuta Pytest y Playwright; solo si ambas suites pasan, construye y publica la imagen Docker en GHCR y luego despliega por AWS Systems Manager. La imagen se etiqueta con el SHA del commit y con `latest`. EC2 descarga la imagen publica; no necesita credenciales de GHCR, claves de acceso AWS en GitHub ni puertos publicos de entrada. El job de despliegue usa la misma configuracion OIDC y SSM descrita abajo.
@@ -115,20 +123,23 @@ Para registrar cada resultado de pruebas y cada intento de despliegue, configura
 - Variables `OPENOBSERVE_URL` (URL base HTTPS, sin ruta), `OPENOBSERVE_ORG` y `OPENOBSERVE_STREAM` (por ejemplo, `ci_events`).
 - Secret `OPENOBSERVE_AUTHORIZATION` con el valor completo `Basic ...` requerido por OpenObserve. No pegues este valor en el chat ni lo guardes en el repositorio.
 
-Los jobs `report-ci` y `report-deploy` envian registros JSON al endpoint `_json` e incluyen tipo de evento, resultado, SHA, rama, actor, repositorio, intento y enlace al run; el evento de despliegue tambien incluye los resultados de tests e imagen. Ademas, el reporte JSON de Playwright se adjunta como artefacto y `report-ci` envia a `ci_events` un evento `playwright_test` por cada intento de prueba, con nombre, archivo, resultado, duracion, salida stdout/stderr, errores y enlace al run. La salida se limita a 8000 caracteres por evento, se redactan valores con nombres como `password`, `token` y `authorization`, y no se envian capturas ni trazas binarias; el HTML completo sigue disponible como artefacto de GitHub Actions. Si no se configuran las cuatro entradas, los eventos se omiten. Un fallo al reportar se muestra como fallo en su job, pero no cambia el gate de pruebas ni detiene un despliegue independiente.
+Los jobs `report-ci` y `report-deploy` envian registros JSON al endpoint `_json` e incluyen tipo de evento, resultado, SHA, rama, actor, repositorio, intento y enlace al run; el evento de despliegue tambien incluye los resultados de tests e imagen. Ademas, `report-ci` envia a `ci_events` un evento `playwright_test` por cada intento de Playwright, un `backend_test` por cada caso de Pytest y un `api_load_test` con el resumen de carga. Todos incluyen el campo `component` (`frontend`, `backend` o `load_test`) y, si el caso falla, `failure_reason` con el diagnostico principal. La aplicacion tambien emite `api_request_error` con componente, ruta, metodo, estado HTTP y causa segura para los errores de validacion, HTTP y excepciones del backend; esos registros aparecen en el stream de logs de aplicacion exportado por OpenTelemetry. Los eventos CI incorporan p95, solicitudes fallidas y errores HTTP 5xx para la prueba de carga.
+
+La salida de cada prueba se limita a 8000 caracteres por evento y se redactan valores con nombres como `password`, `token` y `authorization`; no se envian capturas ni trazas binarias. El HTML completo sigue disponible como artefacto de GitHub Actions. Si no se configuran las cuatro entradas de OpenObserve, los eventos se omiten. Un fallo al reportar se muestra como fallo en su job, pero no cambia el gate de pruebas ni detiene un despliegue independiente.
 
 Consulta los resultados individuales en OpenObserve, seleccionando el stream `ci_events` y el modo SQL:
 
 ```sql
-SELECT event_time, test_name, test_file, result, test_status,
-       duration_ms, retry_index, final_attempt, test_output, run_id, run_url
+SELECT event_time, event_type, component, test_name, test_file, result,
+       failure_reason, duration_ms, p95_ms, max_ms, failed_requests, http_5xx,
+       run_id, run_url
 FROM "ci_events"
-WHERE event_type = 'playwright_test'
+WHERE event_type IN ('backend_test', 'playwright_test', 'api_load_test')
 ORDER BY event_time DESC
 LIMIT 100
 ```
 
-Para consultar un solo push, agrega `AND run_id = '<RUN_ID>'` y sustituye `<RUN_ID>` por el valor de `run_id` del evento `ci_tests` correspondiente.
+Para consultar un solo push, agrega `AND run_id = '<RUN_ID>'` y sustituye `<RUN_ID>` por el valor de `run_id` del evento `ci_tests` correspondiente. Para ver errores en ejecucion de la API, selecciona el stream de logs de la aplicacion y filtra `event_type = 'api_request_error'`; los campos `http_route`, `http_status_code`, `error_type` y `failure_reason` identifican la causa en el backend.
 
 ## Observabilidad con OpenTelemetry
 

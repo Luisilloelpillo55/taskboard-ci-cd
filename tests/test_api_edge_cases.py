@@ -1,4 +1,5 @@
 import hashlib
+import logging
 from http.cookies import SimpleCookie
 
 import pytest
@@ -117,6 +118,45 @@ def test_login_does_not_disclose_whether_an_account_exists(client, user_exists):
 
     assert response.status_code == 401
     assert response.json() == {"detail": "Correo o contraseña incorrectos."}
+
+
+def test_api_validation_log_has_backend_reason_without_input_values(client, caplog):
+    caplog.set_level(logging.WARNING, logger="app.main")
+    secret_password = "DiagnosticSecret2026!"
+
+    response = client.post(
+        "/api/auth/login",
+        json={"email": "not-an-email", "password": secret_password},
+    )
+
+    assert response.status_code == 422
+    record = next(
+        record
+        for record in caplog.records
+        if getattr(record, "event_type", "") == "api_request_error"
+    )
+    assert record.component == "backend"
+    assert record.http_route == "/api/auth/login"
+    assert record.http_status_code == 422
+    assert "body.email" in record.failure_reason
+    assert secret_password not in caplog.text
+
+
+def test_http_error_log_includes_safe_failure_reason(client, caplog):
+    caplog.set_level(logging.WARNING, logger="app.main")
+
+    response = client.get("/api/tasks")
+
+    assert response.status_code == 401
+    record = next(
+        record
+        for record in caplog.records
+        if getattr(record, "event_type", "") == "api_request_error"
+    )
+    assert record.component == "backend"
+    assert record.http_route == "/api/tasks"
+    assert record.http_status_code == 401
+    assert "incorrectos" in record.failure_reason
 
 
 def test_auth_responses_never_expose_passwords_or_session_tokens(client):

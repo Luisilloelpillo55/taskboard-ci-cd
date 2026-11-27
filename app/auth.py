@@ -161,7 +161,18 @@ def login(payload: LoginRequest, response: Response) -> dict:
         payload.password.get_secret_value(), stored_hash
     )
     if user is None or not password_matches:
-        logger.warning("Login rejected")
+        logger.warning(
+            "Login rejected",
+            extra={
+                "event_type": "api_request_error",
+                "component": "backend",
+                "http_method": "POST",
+                "http_route": "/api/auth/login",
+                "http_status_code": status.HTTP_401_UNAUTHORIZED,
+                "error_type": "AuthenticationError",
+                "failure_reason": "Invalid credentials.",
+            },
+        )
         raise _invalid_credentials()
 
     with connect() as connection:

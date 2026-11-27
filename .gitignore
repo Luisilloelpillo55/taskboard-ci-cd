@@ -4,6 +4,8 @@ __pycache__/
 .pytest_cache/
 .coverage
 api-test-report.html
+api-test-results.xml
+api-load-test.json
 backend-coverage/
 node_modules/
 playwright-report/

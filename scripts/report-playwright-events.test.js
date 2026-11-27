@@ -77,12 +77,53 @@ test("builds an event per retry attempt with test metadata and captured logs", (
   );
   assert.equal(events[0].test_name, "creates a task");
   assert.equal(events[0].test_file, "e2e/tasks.spec.js");
+  assert.equal(events[0].component, "frontend");
+  assert.equal(events[0].failure_reason, "assertion failed");
   assert.equal(events[0].test_project, "chromium");
   assert.match(events[0].test_output, /assertion failed/);
   assert.match(events[0].test_output, /click submit/);
   assert.match(events[0].test_output, /locator.click/);
   assert.match(events[0].test_output, /request completed/);
   assert.equal(events[0].run_id, "42");
+});
+
+test("classifies Playwright API-suite failures as backend", () => {
+  const [event] = buildEvents({
+    suites: [
+      {
+        file: "e2e/users.spec.js",
+        suites: [
+          {
+            title: "User account API",
+            specs: [
+              {
+                title: "users can read their account",
+                file: "e2e/users.spec.js",
+                line: 12,
+                tests: [
+                  {
+                    status: "unexpected",
+                    results: [
+                      {
+                        status: "failed",
+                        duration: 12,
+                        errors: [{ message: "expected 200, received 500" }],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(event.component, "backend");
+  assert.equal(event.test_suite, "User account API");
+  assert.equal(event.failure_reason, "expected 200, received 500");
+  assert.equal(event.test_line, 12);
 });
 
 test("redacts credentials and marks truncated test output", () => {
