@@ -51,6 +51,9 @@ jobs:
           --cov-report=term-missing
           --cov-report=html:backend-coverage
 
+      - name: Test Playwright event reporter
+        run: node --test scripts/report-playwright-events.test.js
+
       - name: Run Playwright API and browser tests
         run: npm run test:e2e
 
@@ -78,6 +81,15 @@ jobs:
         with:
           name: playwright-report
           path: playwright-report/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload Playwright JSON results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-json-results
+          path: test-results/playwright-results.json
           if-no-files-found: warn
           retention-days: 7
 
@@ -216,6 +228,13 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Download Playwright JSON results
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: playwright-json-results
+          path: playwright-json-results
+
       - name: Send test result event
         if: >-
           env.OPENOBSERVE_URL != '' &&
@@ -237,6 +256,26 @@ jobs:
           CI_RUN_ATTEMPT: ${{ github.run_attempt }}
           CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bash scripts/report-ci-event.sh
+
+      - name: Send Playwright case events to OpenObserve
+        if: >-
+          env.OPENOBSERVE_URL != '' &&
+          env.OPENOBSERVE_ORG != '' &&
+          env.OPENOBSERVE_STREAM != '' &&
+          env.OPENOBSERVE_AUTHORIZATION != ''
+        env:
+          OPENOBSERVE_URL: ${{ vars.OPENOBSERVE_URL }}
+          OPENOBSERVE_ORG: ${{ vars.OPENOBSERVE_ORG }}
+          OPENOBSERVE_STREAM: ${{ vars.OPENOBSERVE_STREAM }}
+          OPENOBSERVE_AUTHORIZATION: ${{ secrets.OPENOBSERVE_AUTHORIZATION }}
+          CI_COMMIT_SHA: ${{ github.sha }}
+          CI_BRANCH: ${{ github.ref_name }}
+          CI_ACTOR: ${{ github.actor }}
+          CI_REPOSITORY: ${{ github.repository }}
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_RUN_ATTEMPT: ${{ github.run_attempt }}
+          CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node scripts/report-playwright-events.js playwright-json-results/playwright-results.json
 
   report-deploy:
     name: Send deployment result to OpenObserve

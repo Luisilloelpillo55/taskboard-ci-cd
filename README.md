@@ -115,7 +115,20 @@ Para registrar cada resultado de pruebas y cada intento de despliegue, configura
 - Variables `OPENOBSERVE_URL` (URL base HTTPS, sin ruta), `OPENOBSERVE_ORG` y `OPENOBSERVE_STREAM` (por ejemplo, `ci_events`).
 - Secret `OPENOBSERVE_AUTHORIZATION` con el valor completo `Basic ...` requerido por OpenObserve. No pegues este valor en el chat ni lo guardes en el repositorio.
 
-Los jobs `report-ci` y `report-deploy` envian registros JSON al endpoint `_json` e incluyen tipo de evento, resultado, SHA, rama, actor, repositorio, intento y enlace al run; el evento de despliegue tambien incluye los resultados de tests e imagen. Si no se configuran las cuatro entradas, los eventos se omiten. Un fallo al reportar se muestra como fallo en su job, pero no cambia el gate de pruebas ni detiene un despliegue independiente.
+Los jobs `report-ci` y `report-deploy` envian registros JSON al endpoint `_json` e incluyen tipo de evento, resultado, SHA, rama, actor, repositorio, intento y enlace al run; el evento de despliegue tambien incluye los resultados de tests e imagen. Ademas, el reporte JSON de Playwright se adjunta como artefacto y `report-ci` envia a `ci_events` un evento `playwright_test` por cada intento de prueba, con nombre, archivo, resultado, duracion, salida stdout/stderr, errores y enlace al run. La salida se limita a 8000 caracteres por evento, se redactan valores con nombres como `password`, `token` y `authorization`, y no se envian capturas ni trazas binarias; el HTML completo sigue disponible como artefacto de GitHub Actions. Si no se configuran las cuatro entradas, los eventos se omiten. Un fallo al reportar se muestra como fallo en su job, pero no cambia el gate de pruebas ni detiene un despliegue independiente.
+
+Consulta los resultados individuales en OpenObserve, seleccionando el stream `ci_events` y el modo SQL:
+
+```sql
+SELECT event_time, test_name, test_file, result, test_status,
+       duration_ms, retry_index, final_attempt, test_output, run_id, run_url
+FROM "ci_events"
+WHERE event_type = 'playwright_test'
+ORDER BY event_time DESC
+LIMIT 100
+```
+
+Para consultar un solo push, agrega `AND run_id = '<RUN_ID>'` y sustituye `<RUN_ID>` por el valor de `run_id` del evento `ci_tests` correspondiente.
 
 ## Observabilidad con OpenTelemetry
 
