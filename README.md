@@ -176,24 +176,23 @@ En el flujo CI, SSM entrega al script la etiqueta inmutable del commit probado, 
 
 ### Enlace HTTPS temporal para la demostracion (sin dominio)
 
-No abras puertos entrantes en el grupo de seguridad ni publiques el login directamente por HTTP. Con el contenedor sano y una vez publicada la imagen, un Quick Tunnel crea una URL HTTPS temporal y permite restringir el acceso al correo del profesor mediante PIN de un solo uso. Necesitas conocer ese correo; no hace falta compartirlo en este chat. Desde Session Manager ejecuta:
+No abras puertos entrantes en el grupo de seguridad ni publiques el login directamente por HTTP. Con el contenedor sano y una vez publicada la imagen, un Quick Tunnel crea una URL HTTPS temporal sin PIN de Cloudflare. La aplicacion conserva su propio registro e inicio de sesion; cualquier persona con la URL puede visitar la pagina y crear una cuenta. Desde Session Manager ejecuta:
 
 ```bash
-sudo env TUNNEL_ALLOWED_EMAIL='correo-del-profesor@example.com' \
-  docker compose --project-directory /opt/taskboard \
+sudo docker compose --project-directory /opt/taskboard \
   -f /opt/taskboard/deploy/compose.yaml --profile demo up -d cloudflared
 sudo docker compose --project-directory /opt/taskboard \
   -f /opt/taskboard/deploy/compose.yaml logs -f cloudflared
 ```
 
-Comparte la URL `https://....trycloudflare.com` que aparece en los logs. El profesor introduce ese mismo correo y el PIN que Cloudflare le envíe. Para apagar el acceso:
+Abre la URL `https://....trycloudflare.com` que aparece en los logs e inicia sesion o crea una cuenta de Taskboard. Para apagar el acceso:
 
 ```bash
 sudo docker compose --project-directory /opt/taskboard \
   -f /opt/taskboard/deploy/compose.yaml stop cloudflared
 ```
 
-Quick Tunnels son solo para pruebas: no tienen garantia de disponibilidad, la URL cambia al reiniciar el tunel y deja de funcionar al detenerlo. La cookie `Secure` se mantiene activada en EC2. El tráfico externo entra por HTTPS a Cloudflare; la instancia acepta solo conexiones salientes del túnel y no requiere abrir puertos de entrada.
+Quick Tunnels son solo para pruebas: no tienen garantia de disponibilidad, la URL cambia al reiniciar el tunel y deja de funcionar al detenerlo. Sin PIN, cualquier persona que conozca la URL puede alcanzar la pagina, pero cada cuenta solo puede ver sus propias tareas. La cookie `Secure` se mantiene activada en EC2. El trafico externo entra por HTTPS a Cloudflare; la instancia acepta solo conexiones salientes del tunel y no requiere abrir puertos de entrada.
 
 ## Cuentas y sesiones
 

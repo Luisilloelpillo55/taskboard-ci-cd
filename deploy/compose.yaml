@@ -46,8 +46,6 @@ services:
       - --no-autoupdate
       - --url
       - http://taskboard:8000
-      - --allowed-mail
-      - ${TUNNEL_ALLOWED_EMAIL:-}
     profiles:
       - demo
     depends_on:
